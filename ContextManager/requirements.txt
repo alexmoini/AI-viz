@@ -1,0 +1,3 @@
+tiktoken
+requests
+aws-xray-sdk
