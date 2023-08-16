@@ -1,0 +1,13 @@
+# Use the AWS Lambda Python Docker image
+FROM public.ecr.aws/lambda/python:3.9
+
+# Copy python script and requirements file to the root of the docker image
+COPY lambda_function.py .
+COPY requirements.txt .
+
+# Upgrade pip and install required python packages
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
+
+# Set the CMD to your handler (this is specific to AWS Lambda Docker images)
+CMD [ "lambda_function.lambda_handler" ]

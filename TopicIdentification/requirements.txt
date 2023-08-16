@@ -1,0 +1,3 @@
+requests
+aws-xray-sdk
+uuid
