@@ -163,6 +163,7 @@ def lambda_handler(event, context):
                 'messages': messages,
                 'systemMessages': system_messages,
                 'totalTokens': system_tokens,
+                'userId': userId,
             }
             convo_table.put_item(Item=block)
             return {
@@ -205,7 +206,8 @@ def lambda_handler(event, context):
                     'twinId': twinId,
                     'messages': summary_message + new_messages,
                     'totalTokens': len(encoding.encode(' '.join([full_messages['content'] for full_messages in full_messages]))),
-                    'systemMessages': system_messages
+                    'systemMessages': system_messages,
+                    'userId': userId,
                 }
                 convo_table.put_item(Item=new_block)
                 return {
@@ -221,7 +223,8 @@ def lambda_handler(event, context):
                     'twinId': twinId,
                     'messages': messages + new_messages,
                     'totalTokens': totalTokens + new_tokens,
-                    'systemMessages': system_messages
+                    'systemMessages': system_messages,
+                    'userId': userId,
                 }
                 convo_table.put_item(Item=new_block)
                 return {
