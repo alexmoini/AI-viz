@@ -109,7 +109,7 @@ def lambda_handler(event, context):
     for paragraph in split_text:
         paragraph_id = str(uuid.uuid4())
         # get namespace
-        namespace = '{tenant_id}-{twin_id}'
+        namespace = f'{twin_id}'
         # add type and source
         _type = 'applicable_idea'
         source = key
