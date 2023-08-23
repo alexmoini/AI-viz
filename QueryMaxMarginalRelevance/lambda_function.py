@@ -70,18 +70,21 @@ def mmr_score(candidate_score, candidate_vector, selected_vectors, lambda_param=
     return mmr
 
 def max_marginal_relevance(pinecone_response, lambda_param=0.5):
-    """
-    Compute MMR for each vector in the set.
-    """
     selected = []
-    mmr_scores = []
+    reranked_matches = []
 
-    for match in pinecone_response["matches"]:
-        score = mmr_score(match["score"], match["values"], selected, lambda_param)
-        mmr_scores.append(score)
-        selected.append(match["values"])
+    remaining_matches = pinecone_response["matches"].copy()
+    while remaining_matches:
+        mmr_scores = [mmr_score(match["score"], match["values"], selected, lambda_param) for match in remaining_matches]
+        # Select match with the highest MMR score
+        best_idx = mmr_scores.index(max(mmr_scores))
+        best_match = remaining_matches.pop(best_idx)
 
-    return mmr_scores
+        reranked_matches.append(best_match)
+        selected.append(best_match["values"])
+
+    return reranked_matches
+
 
 def query_pinecone(text: str, metadata_filters: dict, top_n: int, namespace: str = 'default'):
     with xray_recorder.in_subsegment('Query Pinecone'):
@@ -130,18 +133,45 @@ def rerank_based_on_mmr(response, mmr_scores):
 def lambda_handler(event, context):
     try:
         body = json.loads(event['body'])
-        text = body['text']
+        queries = body['queries']
         metadata_filters = body['metadata_filters']
         top_n = body['top_n']
         namespace = body['namespace']
+        final_set_size = body['final_set_size']
+        assert len(queries) * top_n > final_set_size, "final_set_size must be smaller than the number of matches returned by queries * top_n"
         print(body)
+        # Accumulate matches from all queries
+        full_matches = []
+        for query in queries:
+            print(f"Querying Pinecone with: {query}")
+            response = query_pinecone(query, metadata_filters, top_n, namespace)
+            try:
+                matches = response['matches']
+                full_matches.extend(matches)
+                print(f"Found {len(matches)} matches")
+                print(f"Matches: {matches}")
+            except:
+                raise Exception(f"Error querying Pinecone: {response}")
 
-        response = query_pinecone(text, metadata_filters, top_n, namespace)
+        # Deduplicate matches
+        print("Deduplicating matches...")
+        for match in full_matches:
+            if 'id' in match:
+                match_id = match['id']
+                if match_id not in seen_ids:
+                    deduplicated_matches.append(match)
+                    seen_ids.add(match_id)
+            else:
+                print(f"Warning: Match missing 'id' key in metadata: {match}")
+        # Sort matches by score
+        print("Sorting matches by score...")
+        matches = sorted(deduplicated_matches, key=lambda k: k['score'], reverse=True)
+
         # print response w/o/ values keys
         print("Before MMR rerank:")
         print("{:<50} {:<10}".format("Content", "Score"))
         print("-" * 60)
-        for match in response['matches']:
+        for match in matches:
             print("{:<50} {:<10.2f}".format(match['metadata']['content'], match['score']))
 
         # Compute MMR scores
@@ -151,7 +181,7 @@ def lambda_handler(event, context):
 
         # Rerank based on MMR and get the count of matches that changed their position
         reranked_matches, rerank_changes = rerank_based_on_mmr(response, mmr_scores)
-        response["matches"] = reranked_matches
+        matches = reranked_matches
 
         print(f"Total matches that changed position due to MMR: {rerank_changes}")
 
@@ -159,15 +189,15 @@ def lambda_handler(event, context):
         print("After MMR rerank:")
         print("{:<50} {:<10}".format("Content", "Score"))
         print("-" * 60)
-        for match, score in zip(response["matches"], mmr_scores):
+        for match, score in zip(matches, mmr_scores):
             print("{:<50} {:<10.2f}".format(match['metadata']['content'], score))
         # remove values from response
-        for match in response['matches']:
+        for match in matches:
             del match['values']
 
         return {
             'statusCode': 200,
-            'body': json.dumps(response)
+            'body': json.dumps(matches[:final_set_size])
         }
 
     except Exception as e:
