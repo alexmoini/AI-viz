@@ -127,5 +127,5 @@ def lambda_handler(event, context):
             raise Exception('Adding to pinecone failed')
     return {
         'statusCode': 200,
-        'body': json.dumps(f'Successfully added audio file: {key} from tenant: {tenantid} for twin: {twinid} to pinecone index')
+        'body': json.dumps(f'Successfully added audio file: {key} from tenant: {tenantid} for twin: {twin_id} to pinecone index')
     }
