@@ -69,11 +69,11 @@ def mmr_score(candidate_score, candidate_vector, selected_vectors, lambda_param=
     mmr = lambda_param * rel_score - (1 - lambda_param) * max_sim
     return mmr
 
-def max_marginal_relevance(pinecone_response, lambda_param=0.5):
+def max_marginal_relevance(matches, lambda_param=0.5):
     selected = []
     reranked_matches = []
 
-    remaining_matches = pinecone_response["matches"].copy()
+    remaining_matches = matches.copy()
     while remaining_matches:
         mmr_scores = [mmr_score(match["score"], match["values"], selected, lambda_param) for match in remaining_matches]
         # Select match with the highest MMR score
@@ -113,21 +113,7 @@ def query_pinecone(text: str, metadata_filters: dict, top_n: int, namespace: str
         except requests.RequestException as e:
             # Log the error and potentially send a custom error response or re-throw the exception.
             print(f"Error querying Pinecone: {e}")
-            raise
-
-def rerank_based_on_mmr(response, mmr_scores):
-    # Pair each match with its MMR score
-    paired = list(zip(response["matches"], mmr_scores))
-    # Sort matches based on MMR scores (higher is better)
-    sorted_paired = sorted(paired, key=lambda x: x[1], reverse=True)
-
-    # Check how much reranking has happened
-    rerank_changes = sum(1 for i, (match, _) in enumerate(sorted_paired) if response["matches"][i] != match)
-
-    # Extract the sorted matches
-    reranked_matches = [match for match, _ in sorted_paired]
-    
-    return reranked_matches, rerank_changes
+            raise e
 
 
 def lambda_handler(event, context):
@@ -138,7 +124,7 @@ def lambda_handler(event, context):
         top_n = body['top_n']
         namespace = body['namespace']
         final_set_size = body['final_set_size']
-        assert len(queries) * top_n > final_set_size, "final_set_size must be smaller than the number of matches returned by queries * top_n"
+        assert top_n >= final_set_size, "final_set_size must be smaller than the number of matches returned by queries * top_n"
         print(body)
         # Accumulate matches from all queries
         full_matches = []
@@ -155,6 +141,8 @@ def lambda_handler(event, context):
 
         # Deduplicate matches
         print("Deduplicating matches...")
+        deduplicated_matches = []
+        seen_ids = set()
         for match in full_matches:
             if 'id' in match:
                 match_id = match['id']
@@ -173,24 +161,20 @@ def lambda_handler(event, context):
         print("-" * 60)
         for match in matches:
             print("{:<50} {:<10.2f}".format(match['metadata']['content'], match['score']))
-
+        print(f"Total matches: {len(matches)}")
         # Compute MMR scores
-                # Compute MMR scores
+        print("Computing MMR scores...")
         lambda_param = float(os.environ.get('LAMBDA_PARAM', 0.5))
-        mmr_scores = max_marginal_relevance(response, lambda_param)
-
-        # Rerank based on MMR and get the count of matches that changed their position
-        reranked_matches, rerank_changes = rerank_based_on_mmr(response, mmr_scores)
-        matches = reranked_matches
-
-        print(f"Total matches that changed position due to MMR: {rerank_changes}")
+        reranked_matches = max_marginal_relevance(matches, lambda_param)
+        print(f"MMR scores: {reranked_matches}")
+        print(f"Total MMR scores: {len(reranked_matches)}")
 
         # After MMR rerank
         print("After MMR rerank:")
         print("{:<50} {:<10}".format("Content", "Score"))
         print("-" * 60)
-        for match, score in zip(matches, mmr_scores):
-            print("{:<50} {:<10.2f}".format(match['metadata']['content'], score))
+        for match in reranked_matches:
+            print("{:<50} {:<10.2f}".format(match['metadata']['content'], match['score']))
         # remove values from response
         for match in matches:
             del match['values']
