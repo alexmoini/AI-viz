@@ -85,8 +85,8 @@ def lambda_handler(event, context):
     # Get s3 bucket&key, tenantid, twinid from event
     bucket = event['bucket']
     key = event['key']
-    tenantid = event['tenantId']
-    twinid = event['twinId']
+    tenant_id = event['tenantId']
+    twin_id = event['twinId']
 
     # Ensure file is .wav or .mp3
     if key[-4:] != '.wav' and key[-4:] != '.mp3':
