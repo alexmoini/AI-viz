@@ -83,10 +83,11 @@ def text_splitter(text: str):
 
 def lambda_handler(event, context):
     # Get s3 bucket&key, tenantid, twinid from event
-    bucket = event['bucket']
-    key = event['key']
-    tenant_id = event['tenantId']
-    twin_id = event['twinId']
+    body = json.loads(event['body'])
+    bucket = body['bucket']
+    key = body['key']
+    tenant_id = body['tenantId']
+    twin_id = body['twinId']
 
     # Ensure file is .wav or .mp3
     if key[-4:] != '.wav' and key[-4:] != '.mp3':
