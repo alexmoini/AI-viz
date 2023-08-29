@@ -4,6 +4,7 @@ import uuid
 import os
 import requests
 from pypdf import PdfReader
+from io import BytesIO
 
 lambda_client = boto3.client('lambda')
 s3 = boto3.client('s3')
@@ -56,9 +57,9 @@ def add_to_pinecone(input: str, metadata: dict, namespace: str='default'):
     response = requests.post(url, json=payload, headers=headers)
     return response
 
-def pdf_splitter(file_contents: str):
+def pdf_splitter(file_contents: bytes):
     # split pdf into paragraphs
-    reader = PdfReader(file_contents)
+    reader = PdfReader(BytesIO(file_contents))
     text = ""
     for page in reader.pages:
         text += page.extract_text() + "\n"
@@ -93,13 +94,13 @@ def lambda_handler(event, context):
     tenant_id = body['tenantId']
     twin_id = body['twinId']
 
-    # Ensure file is .wav or .mp3
-    if key[-4:] != '.wav' and key[-4:] != '.mp3':
-        raise Exception('File must be .wav or .mp3')
+    # Ensure file is .txt or .pdf
+    if key[-4:] != '.txt' and key[-4:] != '.pdf':
+        raise Exception('File must be .txt or .pdf')
     # get file from S3
     s3_object = s3.get_object(Bucket=bucket, Key=key)
     # get file contents, parse streamingBody
-    file_contents = s3_object['Body'].read().decode('utf-8')
+    file_contents = s3_object['Body'].read()
     # check file type, .pdf, .txt, .docx, .doc
     if key[-4:] == '.pdf':
         paragraphs = pdf_splitter(file_contents)
@@ -109,6 +110,25 @@ def lambda_handler(event, context):
         print("Paragraphs: ", paragraphs)
     else: 
         raise Exception('File must be .pdf, .txt, .md')
+    for paragraph in paragraphs:
+        paragraph_id = str(uuid.uuid4())
+        # get namespace
+        namespace = f'{twin_id}'
+        # add type and source
+        _type = 'applicable_idea'
+        source = key
+        # add paragraph to pinecone index
+        metadata = {
+                'namespace': namespace,
+                'type': _type,
+                'source': source,
+                'id': paragraph_id,
+                'content': paragraph,
+                }
+        resp = add_to_pinecone(paragraph, metadata, namespace)
+        if resp.status_code != 200:
+            print(resp)
+            raise Exception('Adding to pinecone failed')
     return {
         'statusCode': 200,
         'body': json.dumps(f'Successfully added audio file: {key} from tenant: {tenant_id} for twin: {twin_id} to pinecone index')
