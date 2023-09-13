@@ -3,6 +3,8 @@ import boto3
 import os
 import json
 import time
+from decimal import Decimal
+import uuid
 
 SQS_QUEUE_URL = os.environ['SQS_QUEUE_URL']
 STEP_TABLE_NAME = os.environ['STEP_TABLE_NAME']
@@ -11,6 +13,13 @@ TWIN_TABLE = os.environ['TWINS_TABLE']
 sqs = boto3.client('sqs')
 step_table = boto3.resource('dynamodb').Table(STEP_TABLE_NAME)
 twin_table = boto3.resource('dynamodb').Table(TWIN_TABLE)
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return float(o)  # or str(o) based on your requirements
+        return super(DecimalEncoder, self).default(o)
+
 
 def lambda_handler(event, context):
     body = json.loads(event['body'])
@@ -49,7 +58,9 @@ def lambda_handler(event, context):
             # send to sqs
             response = sqs.send_message(
                 QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps(payload)
+                MessageBody=json.dumps(payload, cls=DecimalEncoder),
+                MessageGroupId=f"planning_{twin_id}",
+                MessageDeduplicationId=str(uuid.uuid4())
             )
             print(f"Sent message to SQS: {response['MessageId']}")
         elif steps[-1]['is_finished'] == True:
